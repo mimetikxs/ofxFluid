@@ -44,11 +44,13 @@ ofxFluid::ofxFluid(){
     passes = 1;
     internalFormat = GL_RGBA;
 
+	bool isGL3 = ofIsGLProgrammableRenderer();
 
 	// define vertex shader for programable renderer
-	vertexShader = "#version 150\n";
-	vertexShader += STRINGIFY(
-		uniform mat4 modelViewProjectionMatrix;
+	if (isGL3) {
+		vertexShader = "#version 150\n";
+		vertexShader += STRINGIFY(
+			uniform mat4 modelViewProjectionMatrix;
 		in vec4 position;
 		in vec2 texcoord;
 		out vec2 vtexcoord;
@@ -56,55 +58,59 @@ ofxFluid::ofxFluid(){
 			vtexcoord = texcoord;
 			gl_Position = modelViewProjectionMatrix * position;
 		});
-
+	}
     
     // ADVECT
-    fragmentShader = "#version 150\n";
+    fragmentShader = isGL3 ? "#version 150\n" : "";
 	fragmentShader += STRINGIFY(uniform sampler2DRect tex0;         // Real obstacles
                                uniform sampler2DRect backbuffer;
                                uniform sampler2DRect VelocityTexture;
                                
                                uniform float TimeStep;
                                uniform float Dissipation;
-
-							   in vec2 vtexcoord;
-
-							   out vec4 color_out;
-							                                  
-                               void main(){
-                                   vec2 st = vtexcoord;
+							   );
+	fragmentShader += isGL3 ?  "in vec2 vtexcoord; out vec4 color_out;" : "";
+	
+	fragmentShader +=		   "void main(){";
+	
+	fragmentShader += isGL3 ?		"vec2 st = vtexcoord;" : 
+									"vec2 st = gl_TexCoord[0].st;";
+	
+	fragmentShader += STRINGIFY(    float solid = texture2DRect(tex0, st).r;
                                    
-                                   float solid = texture2DRect(tex0, st).r;
-                                   
-                                   if (solid > 0.1) {
-                                       color_out = vec4(0.0,0.0,0.0,0.0);
+                                    if (solid > 0.1) {
+								);
+	fragmentShader += isGL3 ?		"color_out = vec4(0.0,0.0,0.0,0.0);" : 
+									"gl_FragColor = vec4(0.0,0.0,0.0,0.0);";
+	fragmentShader += STRINGIFY(
                                        return;
-                                   }
+                                    }
                                    
-                                   vec2 u = texture2DRect(VelocityTexture, st).rg;
-                                   vec2 coord =  st - TimeStep * u;
-                                   
-								   color_out = Dissipation * texture2DRect(backbuffer, coord);
-                               } 
-                           );
+                                    vec2 u = texture2DRect(VelocityTexture, st).rg;
+                                    vec2 coord =  st - TimeStep * u;
+								);
+	fragmentShader += isGL3 ?	    "color_out = Dissipation * texture2DRect(backbuffer, coord);" : 
+									"gl_FragColor = Dissipation * texture2DRect(backbuffer, coord);";
+	fragmentShader +=			"}";
+                           
     
     
     // JACOBI
-    string fragmentJacobiShader = "#version 150\n";
+    string fragmentJacobiShader = isGL3 ? "#version 150\n" : "";
 	fragmentJacobiShader += STRINGIFY(uniform sampler2DRect Pressure;
                                     uniform sampler2DRect Divergence;
                                     uniform sampler2DRect tex0;
                                             
                                     uniform float Alpha;
                                     uniform float InverseBeta;
-
-									in vec2 vtexcoord;
-
-									out vec4 color_out;
-                                            
-                                    void main() {
-                                        vec2 st = vtexcoord;
-                                                
+									);
+	fragmentJacobiShader += isGL3 ?	"in vec2 vtexcoord; out vec4 color_out;" : "";
+	
+	fragmentJacobiShader +=			"void main() {";
+	
+	fragmentJacobiShader += isGL3 ?		"vec2 st = vtexcoord;" :
+										"vec2 st = gl_TexCoord[0].st;";
+	fragmentJacobiShader += STRINGIFY(
                                         vec4 pN = texture2DRect(Pressure, st + vec2(0.0, 1.0));
                                         vec4 pS = texture2DRect(Pressure, st + vec2(0.0, -1.0));
                                         vec4 pE = texture2DRect(Pressure, st + vec2(1.0, 0.0));
@@ -122,35 +128,40 @@ ofxFluid::ofxFluid(){
                                         if (oW.x > 0.1) pW = pC;
                                                 
                                         vec4 bC = texture2DRect(Divergence, st );
-										color_out = (pW + pE + pS + pN + Alpha * bC) * InverseBeta;
-                                    }
-                                    );
+									 );
+	fragmentJacobiShader += isGL3 ? "color_out = (pW + pE + pS + pN + Alpha * bC) * InverseBeta;" :
+									"gl_FragColor = (pW + pE + pS + pN + Alpha * bC) * InverseBeta;";
+	fragmentJacobiShader += "}";
+                                    
     
     jacobiShader.unload();
-	jacobiShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
+	if (isGL3) jacobiShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
     jacobiShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentJacobiShader);
-	jacobiShader.bindDefaults();
+	if (isGL3) jacobiShader.bindDefaults();
     jacobiShader.linkProgram();
     
     
     //SUBSTRACT GRADIENT
-	string fragmentSubtractGradientShader = "#version 150\n";
+	string fragmentSubtractGradientShader = isGL3 ? "#version 150\n" : "";
     fragmentSubtractGradientShader += STRINGIFY(uniform sampler2DRect Velocity;
                                                 uniform sampler2DRect Pressure;
                                                 uniform sampler2DRect tex0;
                                                       
                                                 uniform float GradientScale;
+												);
+	fragmentSubtractGradientShader += isGL3 ?   "in vec2 vtexcoord; out vec4 color_out;" : "";
 
-												in vec2 vtexcoord;
+	fragmentSubtractGradientShader +=           "void main() {";
 
-												out vec4 color_out;
-                                                      
-                                                void main(){
-                                                    vec2 st = vtexcoord;
-                                                          
+	fragmentSubtractGradientShader += isGL3 ?		"vec2 st = vtexcoord;" :
+													"vec2 st = gl_TexCoord[0].st;";
+	fragmentSubtractGradientShader += STRINGIFY(                                                          
                                                     vec3 oC = texture2DRect(tex0, st ).rgb;
                                                     if (oC.x > 0.1) {
-                                                        color_out.gb = oC.yz;
+											    );
+	fragmentSubtractGradientShader += isGL3 ?		    "color_out.gb = oC.yz;" : 
+														"gl_FragColor.gb = oC.yz;";
+	fragmentSubtractGradientShader += STRINGIFY(
                                                         return;
                                                     }
                                                           
@@ -176,32 +187,32 @@ ofxFluid::ofxFluid(){
                                                     vec2 oldV = texture2DRect(Velocity, st).rg;
                                                     vec2 grad = vec2(pE - pW, pN - pS) * GradientScale;
                                                     vec2 newV = oldV - grad;
-                                                          
-                                                    color_out.rg = (vMask * newV) + obstV;
-                                                          
-                                                }
-                                                );
+											   );
+	fragmentSubtractGradientShader += isGL3 ?	    "color_out.rg = (vMask * newV) + obstV;" : 
+													"gl_FragColor.rg = (vMask * newV) + obstV;";                                                          
+	fragmentSubtractGradientShader +=		   "}";
+                                                
     subtractGradientShader.unload();
-	subtractGradientShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
+	if (isGL3) subtractGradientShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
     subtractGradientShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentSubtractGradientShader);
-	subtractGradientShader.bindDefaults();
+	if (isGL3) subtractGradientShader.bindDefaults();
 	subtractGradientShader.linkProgram();
     
     
     // COMPUTE DIVERGENCE
-	string fragmentComputeDivergenceShader = "#version 150\n";
+	string fragmentComputeDivergenceShader = isGL3 ? "#version 150\n" : "";
     fragmentComputeDivergenceShader += STRINGIFY(uniform sampler2DRect Velocity;
                                                     uniform sampler2DRect tex0;
                                                        
                                                     uniform float HalfInverseCellSize;
+													);
+	fragmentComputeDivergenceShader += isGL3 ?		"in vec2 vtexcoord; out vec4 color_out;" : "";
 
-													in vec2 vtexcoord;
+	fragmentComputeDivergenceShader +=				"void main() {";
 
-													out vec4 color_out;
-                                                       
-                                                    void main(){
-                                                        vec2 st = vtexcoord;
-                                                           
+	fragmentComputeDivergenceShader += isGL3 ?			"vec2 st = vtexcoord;" :
+														"vec2 st = gl_TexCoord[0].st;";
+	fragmentComputeDivergenceShader += STRINGIFY(
                                                         vec2 vN = texture2DRect(Velocity, st + vec2(0.0,1.0)).rg;
                                                         vec2 vS = texture2DRect(Velocity, st + vec2(0.0,-1.0)).rg;
                                                         vec2 vE = texture2DRect(Velocity, st + vec2(1.0,0.0)).rg;
@@ -216,29 +227,31 @@ ofxFluid::ofxFluid(){
                                                         if (oS.x > 0.1) vS = oS.yz;
                                                         if (oE.x > 0.1) vE = oE.yz;
                                                         if (oW.x > 0.1) vW = oW.yz;
-                                                           
-                                                        color_out.r = HalfInverseCellSize * (vE.x - vW.x + vN.y - vS.y);
-                                                    }
-                                                    );
+												);
+	fragmentComputeDivergenceShader += isGL3 ?			"color_out.r = HalfInverseCellSize * (vE.x - vW.x + vN.y - vS.y);" : 
+														"gl_FragColor.r = HalfInverseCellSize * (vE.x - vW.x + vN.y - vS.y);";
+	fragmentComputeDivergenceShader +=				"}";
+                                                    
     computeDivergenceShader.unload();
-	computeDivergenceShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
+	if (isGL3) computeDivergenceShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
     computeDivergenceShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentComputeDivergenceShader);
-	computeDivergenceShader.bindDefaults();
+	if (isGL3) computeDivergenceShader.bindDefaults();
 	computeDivergenceShader.linkProgram();
     
     // APPLY TEXTURE
-	string fragmentApplyTextureShader = "#version 150\n";
+	string fragmentApplyTextureShader = isGL3 ? "#version 150\n" : "";
     fragmentApplyTextureShader += STRINGIFY(uniform sampler2DRect backbuffer;
                                             uniform sampler2DRect tex1;
                                             uniform float   pct;
                                             uniform int   isVel;
+											);
+	fragmentApplyTextureShader += isGL3 ?	"in vec2 vtexcoord; out vec4 color_out;" : "";
 
-											in vec2 vtexcoord;
+	fragmentApplyTextureShader +=			"void main() {";
 
-											out vec4 color_out;
-                                                  
-                                            void main(){
-                                                vec2 st = vtexcoord;
+	fragmentApplyTextureShader += isGL3 ?		"vec2 st = vtexcoord;" :
+												"vec2 st = gl_TexCoord[0].st;";
+	fragmentApplyTextureShader += STRINGIFY(
                                                 vec4 prevFrame = texture2DRect(backbuffer, st);
                                                 vec4 newFrame = texture2DRect(tex1, st);
                                                       
@@ -254,47 +267,62 @@ ofxFluid::ofxFluid(){
 												if (isVel == 0) {
 													mixed.a = min(mixed.a, 1.0); //limit to 1.0
 												}
-												color_out = mixed;
-                                            }
-                                            );
+											);
+	fragmentApplyTextureShader += isGL3 ?		"color_out = mixed;" :
+												"gl_FragColor = mixed;";
+	fragmentApplyTextureShader +=			"}";
+                                            
     applyTextureShader.unload();
-	applyTextureShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
+	if (isGL3) applyTextureShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
     applyTextureShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentApplyTextureShader);
-	applyTextureShader.bindDefaults();
+	if (isGL3) applyTextureShader.bindDefaults();
 	applyTextureShader.linkProgram();
     
     // APPLY IMPULSE
-	string fragmentApplyImpulseShader = "#version 150\n"; 
+	string fragmentApplyImpulseShader = isGL3 ? "#version 150\n" : "";
 	fragmentApplyImpulseShader += STRINGIFY(uniform vec2    Point;
                                             uniform float   Radius;
                                             uniform vec3    Value;
+											);
+	fragmentApplyImpulseShader += isGL3 ?	"in vec2 vtexcoord; out vec4 color_out;" : "";
 
-											in vec2 vtexcoord;
+	fragmentApplyImpulseShader +=			"void main() {";
 
-											out vec4 color_out;
-                                                  
-                                            void main(){
-                                                float d = distance(Point, vtexcoord);
+	fragmentApplyImpulseShader += isGL3 ?		"vec2 st = vtexcoord;" :
+												"vec2 st = gl_TexCoord[0].st;";
+	fragmentApplyImpulseShader += STRINGIFY(
+                                                float d = distance(Point, st);
                                                 if (d < Radius) {
                                                     float a = (Radius - d) * 0.5;
                                                     a = min(a, 1.0);
+											);
+	if (isGL3) {
+		fragmentApplyImpulseShader += STRINGIFY(
                                                     color_out = vec4(Value, a);
                                                 } else {
                                                     color_out = vec4(0);
                                                 }
                                             }
-                                            );
-    
-    
+											);	
+	}
+	else {
+		fragmentApplyImpulseShader += STRINGIFY(
+													gl_FragColor = vec4(Value, a);
+												} else {
+													gl_FragColor = vec4(0);
+												}
+											}
+											);
+	}            
     
     applyImpulseShader.unload();
-	applyImpulseShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
+	if (isGL3) applyImpulseShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
     applyImpulseShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentApplyImpulseShader);
-	applyImpulseShader.bindDefaults();
+	if (isGL3) applyImpulseShader.bindDefaults();
 	applyImpulseShader.linkProgram();
     
     //APPLY BUOYANCY
-    string fragmentApplyBuoyancyShader = "#version 150\n"; 
+    string fragmentApplyBuoyancyShader = isGL3 ? "#version 150\n" : "";
 	fragmentApplyBuoyancyShader += STRINGIFY(uniform sampler2DRect Velocity;
                                             uniform sampler2DRect Temperature;
                                             uniform sampler2DRect Density;
@@ -305,29 +333,34 @@ ofxFluid::ofxFluid(){
                                             uniform float Kappa;
                                                    
                                             uniform vec2  Gravity;
+											);
+	fragmentApplyBuoyancyShader += isGL3 ?	"in vec2 vtexcoord; out vec4 color_out;" : "";
 
-											in vec2 vtexcoord;
+	fragmentApplyBuoyancyShader +=			"void main() {";
 
-											out vec4 color_out;
-                                                   
-                                            void main(){
-                                                vec2 st = vtexcoord;
-                                                       
+	fragmentApplyBuoyancyShader += isGL3 ?		"vec2 st = vtexcoord;" :
+												"vec2 st = gl_TexCoord[0].st;";
+	fragmentApplyBuoyancyShader += STRINGIFY(
                                                 float T = texture2DRect(Temperature, st).r;
                                                 vec2 V = texture2DRect(Velocity, st).rg;
-                                                       
-                                                color_out.rg = V;
-                                                       
+										   );
+	fragmentApplyBuoyancyShader += isGL3 ?		"color_out.rg = V;" :
+												"gl_FragColor.rg = V;";
+	fragmentApplyBuoyancyShader += STRINGIFY(
                                                 if (T > AmbientTemperature) {
                                                     float D = texture2DRect(Density, st).r;
-                                                    color_out.rg += (TimeStep * (T - AmbientTemperature) * Sigma - D * Kappa ) * Gravity;
+											);
+	fragmentApplyBuoyancyShader += isGL3 ?			"color_out.rg += (TimeStep * (T - AmbientTemperature) * Sigma - D * Kappa ) * Gravity;" : 
+													"gl_FragColor.rg += (TimeStep * (T - AmbientTemperature) * Sigma - D * Kappa ) * Gravity;";
+	fragmentApplyBuoyancyShader += STRINGIFY(
                                                 }
                                             }
-                                            );
+											);
+                                            
     applyBuoyancyShader.unload();
-	applyBuoyancyShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
+	if (isGL3) applyBuoyancyShader.setupShaderFromSource(GL_VERTEX_SHADER, vertexShader);
     applyBuoyancyShader.setupShaderFromSource(GL_FRAGMENT_SHADER, fragmentApplyBuoyancyShader);
-	applyBuoyancyShader.bindDefaults();
+	if (isGL3) applyBuoyancyShader.bindDefaults();
 	applyBuoyancyShader.linkProgram();
     
     cellSize            = 1.25f; 
